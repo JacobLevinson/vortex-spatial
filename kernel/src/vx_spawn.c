@@ -287,6 +287,45 @@ void vx_spawn_task_groups(int num_groups, int group_size, vx_spawn_task_groups_c
   vx_wspawn(1, 0);
 }
 
+
+// NVIDIA Like Kernel Interface
+void vx_kernel_launch(int grid_x, int grid_y, int grid_z, int block_x, int block_y, int block_z, vx_spawn_task_groups_cb callback, void *arg){
+  int spatial_mode = 0;
+  if(spatial_mode == 1){
+    vx_printf("Spatial Mode is ON");
+    int num_cores = vx_num_cores();
+    if (num_cores > grid_x * grid_y || (grid_x * grid_y) % num_cores != 0)
+    {
+      vx_printf("warning: Sptial Mode is works best when (grid_x * grid_y) %% num_cores is an integer >=1\n");
+      if (num_cores > grid_x * grid_y){
+        vx_printf("warning: Not all cores will be activated\n");
+      }
+    }
+    // vx_spawn_tasks_spatial
+  } else {
+    int num_groups = grid_x * grid_y * grid_z;
+    int group_size = block_x * block_y * block_z;
+    vx_spawn_task_groups(num_groups, group_size, callback, arg);
+  }
+}
+
+vx_spawn_tasks_spatial(int grid_x, int grid_y, int grid_z, int block_x, int block_y, int block_z, vx_spawn_task_groups_cb callback, void *arg){
+  // Device specifications
+  int num_cores = vx_num_cores();
+  int warps_per_core = vx_num_warps();
+  int threads_per_warp = vx_num_threads();
+  int core_id = vx_core_id();
+
+  // Check group size
+  int group_size = block_x * block_y * block_z;
+  int threads_per_core = warps_per_core * threads_per_warp;
+  if (threads_per_core < group_size)
+  {
+    vx_printf("error: group_size > threads_per_core (%d)\n", threads_per_core);
+    return;
+  }
+}
+
 #ifdef __cplusplus
 }
 #endif
