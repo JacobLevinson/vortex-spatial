@@ -294,6 +294,13 @@ void vx_kernel_launch(int grid_x, int grid_y, int grid_z, int block_x, int block
   if(spatial_mode == 1){
     vx_printf("Spatial Mode is ON");
     int num_cores = vx_num_cores();
+    if(num_cores == 1){
+      vx_printf("warning: Spatial Mode is not effective with only one core\n");
+    }
+    //check if num cores is power of 2
+    if(num_cores & (num_cores - 1)){
+      vx_printf("warning: Spatial Mode is not effective with non power of 2 cores\n");
+    }   
     if (num_cores > grid_x * grid_y || (grid_x * grid_y) % num_cores != 0)
     {
       vx_printf("warning: Sptial Mode is works best when (grid_x * grid_y) %% num_cores is an integer >=1\n");
@@ -324,6 +331,103 @@ vx_spawn_tasks_spatial(int grid_x, int grid_y, int grid_z, int block_x, int bloc
     vx_printf("error: group_size > threads_per_core (%d)\n", threads_per_core);
     return;
   }
+  // Calculate 2D core grid dimensions
+  int core_grid_x = (int)sqrt(num_cores);
+  int core_grid_y = (num_cores + core_grid_x - 1) / core_grid_x;
+  // Calculate 2D core grid dimensions
+  int core_grid_x = (int)sqrt(num_cores);
+  int core_grid_y = (num_cores + core_grid_x - 1) / core_grid_x;
+
+  // Calculate scaling factors
+  int scale_x = (grid_x + core_grid_x - 1) / core_grid_x;
+  int scale_y = (grid_y + core_grid_y - 1) / core_grid_y;
+
+  // Calculate core coordinates
+  int core_x = core_id % core_grid_x;
+  int core_y = core_id / core_grid_x;
+
+  // Calculate task offsets for this core
+  int start_block_x = core_x * scale_x;
+  int end_block_x = MIN(start_block_x + scale_x, grid_x);
+  int start_block_y = core_y * scale_y;
+  int end_block_y = MIN(start_block_y + scale_y, grid_y);
+
+  int num_groups = 0;
+  for (int z = 0; z < grid_z; ++z)
+  {
+    for (int y = start_block_y; y < end_block_y; ++y)
+    {
+      for (int x = start_block_x; x < end_block_x; ++x)
+      {
+        ++num_groups;
+      }
+    }
+  }
+
+  if (num_groups == 0)
+    return;
+
+  int tasks_per_group = group_size;
+  int threads_per_core = warps_per_core * threads_per_warp;
+  int needed_cores = (num_groups + threads_per_core - 1) / threads_per_core;
+  int active_cores = MIN(needed_cores, num_cores);
+
+  // only active cores participate
+  if (core_id >= active_cores)
+    return;
+
+  // Calculate number of warps to activate
+  int total_warps_per_core = num_groups * tasks_per_group / threads_per_warp;
+  int remaining_tasks = num_groups * tasks_per_group - total_warps_per_core * threads_per_warp;
+  int active_warps = total_warps_per_core;
+  int warp_batches = 1, remaining_warps = 0;
+  if (active_warps > warps_per_core)
+  {
+    active_warps = warps_per_core;
+    warp_batches = total_warps_per_core / active_warps;
+    remaining_warps = total_warps_per_core - warp_batches * active_warps;
+  }
+
+  // prepare scheduler arguments
+  wspawn_tasks_args_t wspawn_args = {
+      callback,
+      arg,
+      start_block_x * group_size + start_block_y * scale_x * group_size + core_x * scale_x * scale_y * group_size,
+      remaining_tasks,
+      warp_batches,
+      remaining_warps};
+  csr_write(VX_CSR_MSCRATCH, &wspawn_args);
+
+  if (active_warps >= 1)
+  {
+    // execute callback on other warps
+    vx_wspawn(active_warps, process_all_tasks_stub);
+
+    // activate all threads
+    vx_tmc(-1);
+
+    // process all tasks
+    process_all_tasks();
+
+    // back to single-threaded
+    vx_tmc_one();
+  }
+
+  if (remaining_tasks != 0)
+  {
+    // activate remaining threads
+    int tmask = (1 << remaining_tasks) - 1;
+    vx_tmc(tmask);
+
+    // process remaining tasks
+    process_remaining_tasks();
+
+    // back to single-threaded
+    vx_tmc_one();
+  }
+
+  // wait for spawned tasks to complete
+  vx_wspawn(1, 0);
 }
 
 #ifdef __cplusplus
