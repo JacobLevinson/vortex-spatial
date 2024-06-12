@@ -35,7 +35,7 @@ void vx_serial(vx_serial_cb callback, void * arg);
 
 void vx_kernel_launch(int grid_x, int grid_y, int grid_z, int block_x, int block_y, int block_z, vx_spawn_task_groups_cb callback, void *arg);
 
-void vx_spawn_tasks_spatial(int grid_x, int grid_y, int grid_z, int block_x, int block_y, int block_z, vx_spawn_task_groups_cb callback, void *arg)
+void vx_spawn_tasks_spatial(int grid_x, int grid_y, int grid_z, int block_x, int block_y, int block_z, vx_spawn_task_groups_cb callback, void *arg);
 
 #ifdef __cplusplus
 }

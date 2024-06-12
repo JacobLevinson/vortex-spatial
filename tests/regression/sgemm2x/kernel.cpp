@@ -51,8 +51,25 @@ void kernel_body(int local_task_id, int group_id, int local_group_id, int warps_
 	C_ptr[g_row * size + g_col] = sum;
 }
 
+inline int integer_sqrt(int num)
+{
+	int result = 0;
+	while ((result + 1) * (result + 1) <= num)
+	{
+		result++;
+	}
+	return result;
+}
 int main() {
 	kernel_arg_t* arg = (kernel_arg_t*)csr_read(VX_CSR_MSCRATCH);
-	vx_spawn_task_groups(arg->num_groups, arg->group_size, (vx_spawn_task_groups_cb)kernel_body, arg);
+	int grid_x = integer_sqrt(arg->num_groups);
+	int grid_y = integer_sqrt(arg->num_groups);
+	int grid_z = 1;
+	int block_x = integer_sqrt(arg->group_size);
+	int block_y = integer_sqrt(arg->group_size);
+	int block_z = 1;
+	vx_printf("Hello World!\n");
+	vx_kernel_launch(grid_x, grid_y, grid_z, block_x, block_y, block_z, (vx_spawn_task_groups_cb)kernel_body, arg);
+	//vx_spawn_task_groups(arg->num_groups, arg->group_size, (vx_spawn_task_groups_cb)kernel_body, arg);
 	return 0;
 }
